@@ -56,25 +56,42 @@ fun tokenize expression =
              else
                case (stack, c) of
                     (NONE, #"+") => TAdd::tokenize_internals(NONE, rest)
+                  | (NONE, #"-") => TSub::tokenize_internals(NONE, rest)
                   | (NONE, #"*") => TMul::tokenize_internals(NONE, rest)
+                  | (NONE, #"/") => TDiv::tokenize_internals(NONE, rest)
                   | (NONE, #"(") => TLParen::tokenize_internals(NONE, rest)
                   | (NONE, #")") => TRParen::tokenize_internals(NONE, rest)
                   | (NONE, #" ") => tokenize_internals(NONE, rest)
                   | (SOME(digits), #"+") => (TInt (empty_stack digits))::TAdd::tokenize_internals(NONE, rest)
+                  | (SOME(digits), #"-") => (TInt (empty_stack digits))::TSub::tokenize_internals(NONE, rest)
                   | (SOME(digits), #"*") => (TInt (empty_stack digits))::TMul::tokenize_internals(NONE, rest)
+                  | (SOME(digits), #"/") => (TInt (empty_stack digits))::TDiv::tokenize_internals(NONE, rest)
                   | (SOME(digits), #"(") => (TInt (empty_stack digits))::TLParen::tokenize_internals(NONE, rest)
                   | (SOME(digits), #")") => (TInt (empty_stack digits))::TRParen::tokenize_internals(NONE, rest)
                   | (SOME(digits), #" ") => (TInt (empty_stack digits))::tokenize_internals(NONE, rest)
                   | (_, _) => raise UnsupportedOperand
   in
     tokenize_internals(NONE, (explode expression))
-  end;
+  end
 
 fun precedence TAdd = 0
   | precedence TSub = 0
   | precedence TMul = 1
   | precedence TDiv = 1
   | precedence _ = raise UnsupportedToken
+
+fun print_token (TInt x) = "TInt " ^ Int.toString(x)
+  | print_token TAdd = "TAdd"
+  | print_token TSub = "TSub"
+  | print_token TMul = "TMul"
+  | print_token TDiv = "TDiv"
+  | print_token TRParen = "TRParen"
+  | print_token TLParen = "TLParen"
+  | print_token _ = raise UnsupportedToken
+  (* | print_token TLet = "TLet" *)
+  (* | print_token TEqual *)
+  (* | print_token TIn *)
+  (* | print_token TEnd *)
 
 fun rpnify tokens =
   let
@@ -90,27 +107,36 @@ fun rpnify tokens =
           else stack_top::rpnify_internals(stack, TRParen::rest)
 
       | rpnify_internals (stack, (TInt x)::rest) = (TInt x)::rpnify_internals(stack, rest)
-
-      | rpnify_internals (stack, TMul::rest) = rpnify_internals(TMul::stack, rest)
-
-      | rpnify_internals ([], TAdd::rest) = rpnify_internals([TAdd], rest)
+      
+      | rpnify_internals ([], TAdd::rest) = (print "\nQUA\n"; rpnify_internals([TAdd], rest))
       | rpnify_internals (stack_top::stack, TAdd::rest) =
           if stack_top = TLParen then rpnify_internals(TAdd::stack_top::stack, rest)
-          else if precedence stack_top >= precedence TAdd then stack_top::rpnify_internals(stack, TAdd::rest)
+          else if precedence stack_top >= precedence TAdd then
+            (print (print_token stack_top); stack_top::rpnify_internals(stack, TAdd::rest))
           else rpnify_internals(TAdd::stack, rest)
+
+      | rpnify_internals ([], TSub::rest) = rpnify_internals([TSub], rest)
+      | rpnify_internals (stack_top::stack, TSub::rest) =
+          if stack_top = TLParen then rpnify_internals(TSub::stack_top::stack, rest)
+          else if precedence stack_top >= precedence TSub then stack_top::rpnify_internals(stack, TSub::rest)
+          else rpnify_internals(TSub::stack, rest)
+
+      | rpnify_internals ([], TMul::rest) = rpnify_internals([TMul], rest)
+      | rpnify_internals (stack_top::stack, TMul::rest) =
+          if stack_top = TLParen then rpnify_internals(TMul::stack_top::stack, rest)
+          else if precedence stack_top >= precedence TMul then stack_top::rpnify_internals(stack, TMul::rest)
+          else rpnify_internals(TMul::stack, rest)
+
+      | rpnify_internals ([], TDiv::rest) = rpnify_internals([TDiv], rest)
+      | rpnify_internals (stack_top::stack, TDiv::rest) =
+          if stack_top = TLParen then rpnify_internals(TDiv::stack_top::stack, rest)
+          else if precedence stack_top >= precedence TDiv then stack_top::rpnify_internals(stack, TDiv::rest)
+          else rpnify_internals(TDiv::stack, rest)
 
       | rpnify_internals (_, _) = raise UnsupportedToken;
   in
     rpnify_internals([], tokens)
   end
-
-(* fun reverse l = *)
-(*   let *)
-(*     fun reverse_internals ([], acc) = acc *)
-(*       | reverse_internals (x::rest, acc) = reverse_internals(rest, x::acc) *)
-(*   in *)
-(*     reverse_internals(l, []) *)
-(*   end *)
 
 fun evaluate rpn =
   let
@@ -129,7 +155,15 @@ fun evaluate rpn =
               )
             | _ => raise SyntaxError
        )
-     | evaluate_internals (TMul::rest) = (
+      | evaluate_internals (TSub::rest) = (
+         case !stack of
+              y::x::stack_tail => (
+                stack := (Sub (x, y))::stack_tail;
+                evaluate_internals(rest)
+              )
+            | _ => raise SyntaxError
+       )
+      | evaluate_internals (TMul::rest) = (
          case !stack of
               y::x::stack_tail => (
                 stack := (Mul (x, y))::stack_tail;
@@ -137,17 +171,34 @@ fun evaluate rpn =
               )
             | _ => raise SyntaxError
        )
+      | evaluate_internals (TDiv::rest) = (
+         case !stack of
+              y::x::stack_tail => (
+                stack := (Div (x, y))::stack_tail;
+                evaluate_internals(rest)
+              )
+            | _ => raise SyntaxError
+       )
      | evaluate_internals _ = raise UnsupportedToken
-
   in
     evaluate_internals rpn;
     hd (!stack)
   end
 
-val tokens = tokenize "3 + 4 * (12 + 5)";
+fun exprify code = evaluate(rpnify(tokenize(code)))
+
+val tokens = tokenize "1 + 3 * 4 + 5";
+(* val tokens = tokenize "3 + 4 * (12 + 5)"; *)
+(* val tokens = tokenize "(12 + 3) * (4 + 9)"; *)
+(* val tokens = tokenize "5 + (5 + (5 + 5))"; *)
+(* val tokens = tokenize "7 + (4 * (5 + 6))"; *)
+(* val tokens = tokenize "1 - (2 * (1 + 3 * 4 + 5))"; *)
 
 val rpn = rpnify tokens;
 
 val result = evaluate rpn;
+
+(* val result = exprify "1 - (2 * (1 + 3 * 4 + 5))"; *)
+(* val result = exprify "10 + (11 * (123 + 52 * 1 + 25) * (12 + (12 + (12)) * 5))"; *)
 
 OS.Process.exit(OS.Process.success);
