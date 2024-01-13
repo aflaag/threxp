@@ -9,7 +9,6 @@ datatype expr = Int of int
               | Mul of expr * expr
               | Div of expr * expr
               | Let of string * expr * expr
-              | Empty
 
 datatype token = TInt of int
                | TAdd
@@ -28,6 +27,7 @@ exception UnsupportedToken;
 exception MismatchedParenthesis;
 exception SyntaxError;
 exception UnknownError;
+exception EmptyProgram;
 
 fun power (a, 0) = 1
   | power (a, b) = a * power(a, b - 1)
@@ -192,7 +192,7 @@ fun evaluate rpn =
     case !stack of
          result::[] => result
        | x::rest => raise SyntaxError
-       | [] => Empty
+       | [] => raise EmptyProgram
   end
 
 fun exprify code = evaluate(rpnify(tokenize(code)))
