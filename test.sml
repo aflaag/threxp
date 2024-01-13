@@ -77,7 +77,8 @@ fun tokenize expression =
     tokenize_internals(NONE, (explode expression))
   end
 
-fun precedence TAdd = 0
+fun precedence TLParen = ~1
+  | precedence TAdd = 0
   | precedence TSub = 0
   | precedence TMul = 1
   | precedence TDiv = 1
@@ -116,27 +117,26 @@ fun rpnify tokens =
       
       | rpnify_internals ([], TAdd::rest) = rpnify_internals([TAdd], rest)
       | rpnify_internals (stack_top::stack, TAdd::rest) =
-          if stack_top = TLParen then rpnify_internals(TAdd::stack_top::stack, rest)
-          else if precedence stack_top >= precedence TAdd then
-            (print (print_tokens (stack_top::stack)); stack_top::rpnify_internals(stack, TAdd::rest))
+          if precedence stack_top >= precedence TAdd
+          then stack_top::rpnify_internals(stack, TAdd::rest)
           else rpnify_internals(TAdd::stack_top::stack, rest)
 
       | rpnify_internals ([], TSub::rest) = rpnify_internals([TSub], rest)
       | rpnify_internals (stack_top::stack, TSub::rest) =
-          if stack_top = TLParen then rpnify_internals(TSub::stack_top::stack, rest)
-          else if precedence stack_top >= precedence TSub then stack_top::rpnify_internals(stack, TSub::rest)
+          if precedence stack_top >= precedence TSub
+          then stack_top::rpnify_internals(stack, TSub::rest)
           else rpnify_internals(TSub::stack_top::stack, rest)
 
       | rpnify_internals ([], TMul::rest) = rpnify_internals([TMul], rest)
       | rpnify_internals (stack_top::stack, TMul::rest) =
-          if stack_top = TLParen then rpnify_internals(TMul::stack_top::stack, rest)
-          else if precedence stack_top >= precedence TMul then stack_top::rpnify_internals(stack, TMul::rest)
+          if precedence stack_top >= precedence TMul
+          then stack_top::rpnify_internals(stack, TMul::rest)
           else rpnify_internals(TMul::stack_top::stack, rest)
 
       | rpnify_internals ([], TDiv::rest) = rpnify_internals([TDiv], rest)
       | rpnify_internals (stack_top::stack, TDiv::rest) =
-          if stack_top = TLParen then rpnify_internals(TDiv::stack_top::stack, rest)
-          else if precedence stack_top >= precedence TDiv then stack_top::rpnify_internals(stack, TDiv::rest)
+          if precedence stack_top >= precedence TDiv
+          then stack_top::rpnify_internals(stack, TDiv::rest)
           else rpnify_internals(TDiv::stack_top::stack, rest)
 
       | rpnify_internals (_, _) = raise UnsupportedToken;
@@ -188,7 +188,7 @@ fun evaluate rpn =
      | evaluate_internals _ = raise UnsupportedToken
   in
     evaluate_internals rpn;
-    (* hd (!stack) *)
+
     case !stack of
          result::[] => result
        | x::rest => raise SyntaxError
@@ -197,19 +197,33 @@ fun evaluate rpn =
 
 fun exprify code = evaluate(rpnify(tokenize(code)))
 
-(* val tokens = tokenize "1 + 3 * 4 + 5"; *)
-(* val tokens = tokenize "3 + 4 * (12 + 5)"; *)
-(* val tokens = tokenize "(12 + 3) * (4 + 9)"; *)
-(* val tokens = tokenize "5 + (5 + (5 + 5))"; *)
-(* val tokens = tokenize "7 + (4 * (5 + 6))"; *)
-(* val tokens = tokenize "1 - (2 * (1 + 3 * 4 + 5))"; *)
-(**)
-(* val rpn = rpnify tokens; *)
-(**)
-(* val result = evaluate rpn; *)
+val output1 = exprify "10 - (11 * (123 - 52 / 1 + 25) / (12 - (12 + (12)) * 5))";
+val expected1 = Sub (Int 10, Div (Mul (Int 11,Add (Sub (Int 123,Div (Int 52,Int 1)),Int 25)), Sub (Int 12,Mul (Add (Int 12,Int 12),Int 5))));
 
-(* val result = exprify "1 - (2 * (1 + 3 * 4 + 5))"; *)
-(* val result = exprify "1 + 2 - 3"; *)
-val result = exprify "10 - (11 * (123 - 52 / 1 + 25) / (12 - (12 + (12)) * 5))";
+val output2 = exprify "1 - (2 * (1 + 3 * 4 + 5))";
+val expected2 = Sub (Int 1,Mul (Int 2,Add (Add (Int 1,Mul (Int 3,Int 4)),Int 5)));
+
+val output3 = exprify "(12 + 3) * (4 - 9)";
+val expected3 = Mul (Add (Int 12,Int 3),Sub (Int 4,Int 9));
+
+val output4 = exprify "3 + 4 * (12 + 5)";
+val expected4 = Add (Int 3, Mul (Int 4, Add(Int 12, Int 5)));
+
+val output5 = exprify "7 + (4 * (5 + 6))";
+val expected5 = Add (Int 7, Mul (Int 4, Add(Int 5, Int 6)));
+
+val output6 = exprify "1 + 3 * 4 + 5";
+val expected6 = Add (Add (Int 1,Mul (Int 3,Int 4)),Int 5)
+
+val output7 = exprify "5 + (5 + (5 + 5))";
+val expected7 = Add (Int 5, Add (Int 5, Add(Int 5, Int 5)))
+
+val check1 = output1 = expected1;
+val check2 = output2 = expected2;
+val check3 = output3 = expected3;
+val check4 = output4 = expected4;
+val check5 = output5 = expected5;
+val check6 = output6 = expected6;
+val check7 = output7 = expected7;
 
 OS.Process.exit(OS.Process.success);
