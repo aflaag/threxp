@@ -73,40 +73,35 @@ fun tokenize expression =
   end;
 
 fun precedence Add = 0
-  (* | precedence Sub = 0 *)
+  | precedence Sub = 0
   | precedence Mul = 1
+  | precedence Div = 1
   | precedence _ = raise UnsupportedToken
 
-(* fun pop_stack ([], _) = [] *)
-(*   | pop_stack (stack_top::stack, operator) = *)
-(*       if (precedence stack_top) >= (precedence operator) *)
-(*       then pop_stack(stack, operator) *)
-(*       else stack *)
+fun rpnify_internals ([], []) = []
+  | rpnify_internals (token::stack, []) = token::rpnify_internals(stack, [])
+  | rpnify_internals (stack, Lparen::rest) = rpnify_internals(Lparen::stack, rest)
 
-fun rpnify ([], []) = []
-  | rpnify (token::stack, []) = token::rpnify(stack, [])
-  | rpnify (stack, Lparen::rest) = rpnify(Lparen::stack, rest)
-
-  (* | rpnify ([], Rparen::rest) = raise UnsupportedToken *)
-  | rpnify (stack_top::stack, Rparen::rest) =
+  | rpnify_internals ([], Rparen::rest) = raise MismatchedParenthesis
+  | rpnify_internals (stack_top::stack, Rparen::rest) =
       if stack_top = Lparen
-      then rpnify(stack, rest)
-      else stack_top::rpnify(stack, Rparen::rest)
-  | rpnify (stack, (Int x)::rest) = (Int x)::rpnify(stack, rest)
+      then rpnify_internals(stack, rest)
+      else stack_top::rpnify_internals(stack, Rparen::rest)
+  | rpnify_internals (stack, (Int x)::rest) = (Int x)::rpnify_internals(stack, rest)
 
-  | rpnify (stack, Mul::rest) = rpnify(Mul::stack, rest)
+  | rpnify_internals (stack, Mul::rest) = rpnify_internals(Mul::stack, rest)
 
-  | rpnify ([], Add::rest) = rpnify([Add], rest)
-  | rpnify (stack_top::stack, Add::rest) =
-      if precedence stack_top >= precedence Add
-      then stack_top::rpnify(stack, Add::rest)
-      else rpnify(Add::stack, rest)
+  | rpnify_internals ([], Add::rest) = rpnify_internals([Add], rest)
+  | rpnify_internals (stack_top::stack, Add::rest) =
+      if stack_top = Lparen then rpnify_internals(Add::stack_top::stack, rest)
+      else if precedence stack_top >= precedence Add then stack_top::rpnify_internals(stack, Add::rest)
+      else rpnify_internals(Add::stack, rest)
 
-  | rpnify (_, _) = raise UnsupportedToken;
+  | rpnify_internals (_, _) = raise UnsupportedToken;
 
 val tokens = tokenize "3 + 4 * (2 + 5)";
 (* val tokens = tokenize " 0012 + 24 "; *)
 
-val rpn = rpnify([], tokens);
+val rpn = rpnify_internals([], tokens);
 
 OS.Process.exit(OS.Process.success);

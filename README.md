@@ -4,4 +4,8 @@ TODO
 
 ## TODO list
 
-- da fillare
+- testare estensivamente
+- fare le valutazioni
+- finire gli operatori
+- gestire le eccezioni
+
