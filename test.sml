@@ -1,5 +1,7 @@
 open SMLofNJ.Cont;
 
+Control.Print.printDepth := 1024;
+
 datatype expr = Int of int
               | Id of string
               | Add of expr * expr
@@ -7,6 +9,7 @@ datatype expr = Int of int
               | Mul of expr * expr
               | Div of expr * expr
               | Let of string * expr * expr
+              | Empty
 
 datatype token = TInt of int
                | TAdd
@@ -93,6 +96,9 @@ fun print_token (TInt x) = "TInt " ^ Int.toString(x)
   (* | print_token TIn *)
   (* | print_token TEnd *)
 
+fun print_tokens ([]) = "\n"
+  | print_tokens (t::rest) = (print_token t) ^ ", " ^ print_tokens(rest)
+
 fun rpnify tokens =
   let
     fun rpnify_internals ([], []) = []
@@ -108,30 +114,30 @@ fun rpnify tokens =
 
       | rpnify_internals (stack, (TInt x)::rest) = (TInt x)::rpnify_internals(stack, rest)
       
-      | rpnify_internals ([], TAdd::rest) = (print "\nQUA\n"; rpnify_internals([TAdd], rest))
+      | rpnify_internals ([], TAdd::rest) = rpnify_internals([TAdd], rest)
       | rpnify_internals (stack_top::stack, TAdd::rest) =
           if stack_top = TLParen then rpnify_internals(TAdd::stack_top::stack, rest)
           else if precedence stack_top >= precedence TAdd then
-            (print (print_token stack_top); stack_top::rpnify_internals(stack, TAdd::rest))
-          else rpnify_internals(TAdd::stack, rest)
+            (print (print_tokens (stack_top::stack)); stack_top::rpnify_internals(stack, TAdd::rest))
+          else rpnify_internals(TAdd::stack_top::stack, rest)
 
       | rpnify_internals ([], TSub::rest) = rpnify_internals([TSub], rest)
       | rpnify_internals (stack_top::stack, TSub::rest) =
           if stack_top = TLParen then rpnify_internals(TSub::stack_top::stack, rest)
           else if precedence stack_top >= precedence TSub then stack_top::rpnify_internals(stack, TSub::rest)
-          else rpnify_internals(TSub::stack, rest)
+          else rpnify_internals(TSub::stack_top::stack, rest)
 
       | rpnify_internals ([], TMul::rest) = rpnify_internals([TMul], rest)
       | rpnify_internals (stack_top::stack, TMul::rest) =
           if stack_top = TLParen then rpnify_internals(TMul::stack_top::stack, rest)
           else if precedence stack_top >= precedence TMul then stack_top::rpnify_internals(stack, TMul::rest)
-          else rpnify_internals(TMul::stack, rest)
+          else rpnify_internals(TMul::stack_top::stack, rest)
 
       | rpnify_internals ([], TDiv::rest) = rpnify_internals([TDiv], rest)
       | rpnify_internals (stack_top::stack, TDiv::rest) =
           if stack_top = TLParen then rpnify_internals(TDiv::stack_top::stack, rest)
           else if precedence stack_top >= precedence TDiv then stack_top::rpnify_internals(stack, TDiv::rest)
-          else rpnify_internals(TDiv::stack, rest)
+          else rpnify_internals(TDiv::stack_top::stack, rest)
 
       | rpnify_internals (_, _) = raise UnsupportedToken;
   in
@@ -182,23 +188,28 @@ fun evaluate rpn =
      | evaluate_internals _ = raise UnsupportedToken
   in
     evaluate_internals rpn;
-    hd (!stack)
+    (* hd (!stack) *)
+    case !stack of
+         result::[] => result
+       | x::rest => raise SyntaxError
+       | [] => Empty
   end
 
 fun exprify code = evaluate(rpnify(tokenize(code)))
 
-val tokens = tokenize "1 + 3 * 4 + 5";
+(* val tokens = tokenize "1 + 3 * 4 + 5"; *)
 (* val tokens = tokenize "3 + 4 * (12 + 5)"; *)
 (* val tokens = tokenize "(12 + 3) * (4 + 9)"; *)
 (* val tokens = tokenize "5 + (5 + (5 + 5))"; *)
 (* val tokens = tokenize "7 + (4 * (5 + 6))"; *)
 (* val tokens = tokenize "1 - (2 * (1 + 3 * 4 + 5))"; *)
-
-val rpn = rpnify tokens;
-
-val result = evaluate rpn;
+(**)
+(* val rpn = rpnify tokens; *)
+(**)
+(* val result = evaluate rpn; *)
 
 (* val result = exprify "1 - (2 * (1 + 3 * 4 + 5))"; *)
-(* val result = exprify "10 + (11 * (123 + 52 * 1 + 25) * (12 + (12 + (12)) * 5))"; *)
+(* val result = exprify "1 + 2 - 3"; *)
+val result = exprify "10 - (11 * (123 - 52 / 1 + 25) / (12 - (12 + (12)) * 5))";
 
 OS.Process.exit(OS.Process.success);
