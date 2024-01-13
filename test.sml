@@ -59,9 +59,13 @@ fun tokenize expression =
                case (stack, c) of
                     (NONE, #"+") => Add::tokenize_internals(NONE, rest)
                   | (NONE, #"*") => Mul::tokenize_internals(NONE, rest)
+                  | (NONE, #"(") => Lparen::tokenize_internals(NONE, rest)
+                  | (NONE, #")") => Rparen::tokenize_internals(NONE, rest)
                   | (NONE, #" ") => tokenize_internals(NONE, rest)
                   | (SOME(digits), #"+") => (Int (empty_stack digits))::Add::tokenize_internals(NONE, rest)
                   | (SOME(digits), #"*") => (Int (empty_stack digits))::Mul::tokenize_internals(NONE, rest)
+                  | (SOME(digits), #"(") => (Int (empty_stack digits))::Lparen::tokenize_internals(NONE, rest)
+                  | (SOME(digits), #")") => (Int (empty_stack digits))::Rparen::tokenize_internals(NONE, rest)
                   | (SOME(digits), #" ") => (Int (empty_stack digits))::tokenize_internals(NONE, rest)
                   | (_, _) => raise UnsupportedOperand
   in
@@ -81,7 +85,13 @@ fun precedence Add = 0
 
 fun rpnify ([], []) = []
   | rpnify (token::stack, []) = token::rpnify(stack, [])
+  | rpnify (stack, Lparen::rest) = rpnify(Lparen::stack, rest)
 
+  (* | rpnify ([], Rparen::rest) = raise UnsupportedToken *)
+  | rpnify (stack_top::stack, Rparen::rest) =
+      if stack_top = Lparen
+      then rpnify(stack, rest)
+      else stack_top::rpnify(stack, Rparen::rest)
   | rpnify (stack, (Int x)::rest) = (Int x)::rpnify(stack, rest)
 
   | rpnify (stack, Mul::rest) = rpnify(Mul::stack, rest)
@@ -94,7 +104,7 @@ fun rpnify ([], []) = []
 
   | rpnify (_, _) = raise UnsupportedToken;
 
-val tokens = tokenize "3 + 4 * 2 + 5";
+val tokens = tokenize "3 + 4 * (2 + 5)";
 (* val tokens = tokenize " 0012 + 24 "; *)
 
 val rpn = rpnify([], tokens);
