@@ -8,22 +8,23 @@ datatype expr = Int of int
               | Div of expr * expr
               | Let of string * expr * expr
 
-datatype token = Int of int
-               | Add
-               | Sub
-               | Mul
-               | Div
-               | Let
-               | Equal
-               | In
-               | End
-               | Rparen
-               | Lparen
+datatype token = TInt of int
+               | TAdd
+               | TSub
+               | TMul
+               | TDiv
+               | TLet
+               | TEqual
+               | TIn
+               | TEnd
+               | TRParen
+               | TLParen
 
-exception InvalidStack;
 exception UnsupportedOperand;
 exception UnsupportedToken;
 exception MismatchedParenthesis;
+exception SyntaxError;
+exception UnknownError;
 
 fun power (a, 0) = 1
   | power (a, b) = a * power(a, b - 1)
@@ -31,11 +32,8 @@ fun power (a, 0) = 1
 fun empty_stack stack =
   let 
     fun empty_stack_internals (n, []) = 0
-      | empty_stack_internals (n, t::rest) = (
-          case t of
-               Int(x) => x
-             | _ => raise InvalidStack
-        ) * power(10,n) + empty_stack_internals(n + 1, rest)
+      | empty_stack_internals (n, (TInt x)::rest) = x * power(10, n) + empty_stack_internals(n + 1, rest)
+      | empty_stack_internals (_, _) = raise UnknownError
   in
     empty_stack_internals(0, stack)
   end
@@ -45,11 +43,11 @@ fun tokenize expression =
     fun tokenize_internals (stack, chars) =
       case (stack, chars) of
            (NONE, []) => []
-         | (SOME(digits), []) => (Int (empty_stack digits))::tokenize_internals(NONE, [])
+         | (SOME(digits), []) => (TInt (empty_stack digits))::tokenize_internals(NONE, [])
          | (stack, c::rest) =>
              if Char.isDigit c
              then tokenize_internals(SOME (
-               (Int (Char.ord c - 48))::(
+               (TInt (Char.ord c - 48))::(
                  case stack of
                       NONE => []
                     | SOME(digits) => digits
@@ -57,51 +55,99 @@ fun tokenize expression =
              ), rest)
              else
                case (stack, c) of
-                    (NONE, #"+") => Add::tokenize_internals(NONE, rest)
-                  | (NONE, #"*") => Mul::tokenize_internals(NONE, rest)
-                  | (NONE, #"(") => Lparen::tokenize_internals(NONE, rest)
-                  | (NONE, #")") => Rparen::tokenize_internals(NONE, rest)
+                    (NONE, #"+") => TAdd::tokenize_internals(NONE, rest)
+                  | (NONE, #"*") => TMul::tokenize_internals(NONE, rest)
+                  | (NONE, #"(") => TLParen::tokenize_internals(NONE, rest)
+                  | (NONE, #")") => TRParen::tokenize_internals(NONE, rest)
                   | (NONE, #" ") => tokenize_internals(NONE, rest)
-                  | (SOME(digits), #"+") => (Int (empty_stack digits))::Add::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #"*") => (Int (empty_stack digits))::Mul::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #"(") => (Int (empty_stack digits))::Lparen::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #")") => (Int (empty_stack digits))::Rparen::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #" ") => (Int (empty_stack digits))::tokenize_internals(NONE, rest)
+                  | (SOME(digits), #"+") => (TInt (empty_stack digits))::TAdd::tokenize_internals(NONE, rest)
+                  | (SOME(digits), #"*") => (TInt (empty_stack digits))::TMul::tokenize_internals(NONE, rest)
+                  | (SOME(digits), #"(") => (TInt (empty_stack digits))::TLParen::tokenize_internals(NONE, rest)
+                  | (SOME(digits), #")") => (TInt (empty_stack digits))::TRParen::tokenize_internals(NONE, rest)
+                  | (SOME(digits), #" ") => (TInt (empty_stack digits))::tokenize_internals(NONE, rest)
                   | (_, _) => raise UnsupportedOperand
   in
     tokenize_internals(NONE, (explode expression))
   end;
 
-fun precedence Add = 0
-  | precedence Sub = 0
-  | precedence Mul = 1
-  | precedence Div = 1
+fun precedence TAdd = 0
+  | precedence TSub = 0
+  | precedence TMul = 1
+  | precedence TDiv = 1
   | precedence _ = raise UnsupportedToken
 
-fun rpnify_internals ([], []) = []
-  | rpnify_internals (token::stack, []) = token::rpnify_internals(stack, [])
-  | rpnify_internals (stack, Lparen::rest) = rpnify_internals(Lparen::stack, rest)
+fun rpnify tokens =
+  let
+    fun rpnify_internals ([], []) = []
+      | rpnify_internals (token::stack, []) = token::rpnify_internals(stack, [])
 
-  | rpnify_internals ([], Rparen::rest) = raise MismatchedParenthesis
-  | rpnify_internals (stack_top::stack, Rparen::rest) =
-      if stack_top = Lparen
-      then rpnify_internals(stack, rest)
-      else stack_top::rpnify_internals(stack, Rparen::rest)
-  | rpnify_internals (stack, (Int x)::rest) = (Int x)::rpnify_internals(stack, rest)
+      | rpnify_internals (stack, TLParen::rest) = rpnify_internals(TLParen::stack, rest)
 
-  | rpnify_internals (stack, Mul::rest) = rpnify_internals(Mul::stack, rest)
+      | rpnify_internals ([], TRParen::rest) = raise MismatchedParenthesis
+      | rpnify_internals (stack_top::stack, TRParen::rest) =
+          if stack_top = TLParen
+          then rpnify_internals(stack, rest)
+          else stack_top::rpnify_internals(stack, TRParen::rest)
 
-  | rpnify_internals ([], Add::rest) = rpnify_internals([Add], rest)
-  | rpnify_internals (stack_top::stack, Add::rest) =
-      if stack_top = Lparen then rpnify_internals(Add::stack_top::stack, rest)
-      else if precedence stack_top >= precedence Add then stack_top::rpnify_internals(stack, Add::rest)
-      else rpnify_internals(Add::stack, rest)
+      | rpnify_internals (stack, (TInt x)::rest) = (TInt x)::rpnify_internals(stack, rest)
 
-  | rpnify_internals (_, _) = raise UnsupportedToken;
+      | rpnify_internals (stack, TMul::rest) = rpnify_internals(TMul::stack, rest)
 
-val tokens = tokenize "3 + 4 * (2 + 5)";
-(* val tokens = tokenize " 0012 + 24 "; *)
+      | rpnify_internals ([], TAdd::rest) = rpnify_internals([TAdd], rest)
+      | rpnify_internals (stack_top::stack, TAdd::rest) =
+          if stack_top = TLParen then rpnify_internals(TAdd::stack_top::stack, rest)
+          else if precedence stack_top >= precedence TAdd then stack_top::rpnify_internals(stack, TAdd::rest)
+          else rpnify_internals(TAdd::stack, rest)
 
-val rpn = rpnify_internals([], tokens);
+      | rpnify_internals (_, _) = raise UnsupportedToken;
+  in
+    rpnify_internals([], tokens)
+  end
+
+(* fun reverse l = *)
+(*   let *)
+(*     fun reverse_internals ([], acc) = acc *)
+(*       | reverse_internals (x::rest, acc) = reverse_internals(rest, x::acc) *)
+(*   in *)
+(*     reverse_internals(l, []) *)
+(*   end *)
+
+fun evaluate rpn =
+  let
+    val stack = ref [];
+
+    fun evaluate_internals ([]) = ()
+      | evaluate_internals ((TInt x)::rest) = (
+          stack := (Int x)::(!stack);
+          evaluate_internals(rest)
+        )
+      | evaluate_internals (TAdd::rest) = (
+         case !stack of
+              y::x::stack_tail => (
+                stack := (Add (x, y))::stack_tail;
+                evaluate_internals(rest)
+              )
+            | _ => raise SyntaxError
+       )
+     | evaluate_internals (TMul::rest) = (
+         case !stack of
+              y::x::stack_tail => (
+                stack := (Mul (x, y))::stack_tail;
+                evaluate_internals(rest)
+              )
+            | _ => raise SyntaxError
+       )
+     | evaluate_internals _ = raise UnsupportedToken
+
+  in
+    evaluate_internals rpn;
+    hd (!stack)
+  end
+
+val tokens = tokenize "3 + 4 * (12 + 5)";
+
+val rpn = rpnify tokens;
+
+val result = evaluate rpn;
 
 OS.Process.exit(OS.Process.success);
