@@ -8,6 +8,7 @@ signature THREADS =
     val spawn : (unit -> unit) -> unit
     val dispatch : unit -> 'a
     val yield : unit -> unit
+    val empty_readyQueue : unit -> unit
   end;
 
 structure T :> THREADS =
@@ -43,4 +44,14 @@ structure T :> THREADS =
         dispatch () (* ends with dispatch to keep the execution going *)
       )
     )
+
+    (* empties the readyQueue *)
+    fun empty_readyQueue () =
+      let
+        val _ = while not (Queue.isEmpty readyQueue) do
+                    Queue.dequeue readyQueue
+      in
+        ()
+      end
+
   end;
