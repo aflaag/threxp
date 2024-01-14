@@ -1,14 +1,6 @@
-open SMLofNJ.Cont;
+use "expr.sml";
 
 Control.Print.printDepth := 1024;
-
-datatype expr = Int of int
-              | Id of string
-              | Add of expr * expr
-              | Sub of expr * expr
-              | Mul of expr * expr
-              | Div of expr * expr
-              | Let of string * expr * expr
 
 datatype token = TInt of int
                | TId of string
@@ -159,17 +151,6 @@ fun rpnify tokens =
     rpnify_internals([], tokens)
   end
 
-(* fun palle (Int x) = "Int " ^ Int.toString(x) *)
-(*   | palle (Id v) = "Id " ^ v *)
-(*   | palle (Add (x, y)) = "Add (" ^ palle(x) ^ ", " ^ palle(y) ^ ")" *)
-(*   | palle (Sub (x, y)) = "Sub (" ^ palle(x) ^ ", " ^ palle(y) ^ ")" *)
-(*   | palle (Mul (x, y)) = "Mul (" ^ palle(x) ^ ", " ^ palle(y) ^ ")" *)
-(*   | palle (Div (x, y)) = "Div (" ^ palle(x) ^ ", " ^ palle(y) ^ ")" *)
-(*   | palle (Let (x, m, n)) = "Let (" ^ x ^ ", " ^ palle(m) ^ ", " ^ palle(n) ^ ")" *)
-(**)
-(* fun cazzo ([]) = "\n" *)
-(*   | cazzo (s::rest) = " | " ^ palle(s) ^ " | " ^ cazzo(rest) *)
-
 fun evaluate rpn =
   let
     val stack = ref [];
@@ -177,102 +158,171 @@ fun evaluate rpn =
     val exprM = ref NONE;
     val exprN = ref NONE;
 
-    val buildingM = ref false;
-    val buildingN = ref false;
+    (* val buildingM = ref false; *)
+    (* val buildingN = ref false; *)
 
-    fun evaluate_internals ([]) = ()
+    fun evaluate_internals (_, _, []) = ()
 
-      | evaluate_internals ((TInt x)::rest) = (
+        (* push integers and variables inside the stack *)
+      | evaluate_internals (bM, bN, (TInt x)::rest) = (
           stack := (Int x)::(!stack);
-          evaluate_internals(rest)
+          evaluate_internals(bM, bN, rest)
         )
-      | evaluate_internals ((TId v)::rest) = (
+      | evaluate_internals (bM, bN, (TId v)::rest) = (
           stack := (Id v)::(!stack);
-          evaluate_internals(rest)
+          evaluate_internals(bM, bN, rest)
         )
 
-      | evaluate_internals (TEnd::next::rest) = (
+      | evaluate_internals (bM, bN, TEnd::next::rest) = (
           case next of
                TIn => (
+                 (* if TIn is the next token, N will be the first expr
+                 in the stack *)
                  exprN := SOME(hd (!stack));
-                 stack := tl (!stack)
+                 stack := tl(!stack);
+
+                 (* there is no need to flag N *)
+                 evaluate_internals(bM, bN, next::rest)
                )
+               
+               (* if TLetStart is the next token, @ was skipped *)
              | (TLetStart _) => raise SyntaxError
 
-             | _ => buildingN := true;
-
-          evaluate_internals(next::rest)
+               (* if TIn is not the next token, N will be T (x, y),
+               where T is the next token and x and y are the next
+               elements on top of the stack *)
+             | _ => evaluate_internals(bM, true, next::rest)
         )
-      | evaluate_internals (TIn::next::rest) = (
+      | evaluate_internals (bM, bN, TIn::next::rest) = (
           case next of
                (TLetStart _) => (
+                 (* if TLetStart is the next token, M will be the first expr in
+                   the stack *)
                  exprM := SOME(hd (!stack));
-                 stack := tl (!stack)
-               )
-             | _ => buildingM := true;
+                 stack := tl(!stack);
 
-          evaluate_internals(next::rest)
+                 (* there is no need to flag M *)
+                 evaluate_internals(bM, bN, next::rest)
+               )
+
+               (* if TLetStart is not the next token, M will be T (x, y)
+               where T is the next token and x and y are the next
+               elements on top of the stack *)
+             | _ => evaluate_internals(true, bN, next::rest)
       )
 
-      | evaluate_internals ((TLetStart var)::rest) = (
+      | evaluate_internals (bM, bN, (TLetStart var)::rest) = (
           case (!exprM, !exprN) of
+               (* if there are both M and N, push the Let clause
+               on top of the stack and flush M and N*)
                (SOME(m), SOME(n)) => (
                  stack := (Let (var, m, n))::(!stack);
                  exprM := NONE;
                  exprN := NONE;
 
-                 evaluate_internals(rest)
+                 evaluate_internals(bM, bN, rest)
                )
+
+               (* if either one of the two expressions is NONE,
+               a part of the Let clause is missing *)
              | (_, _) => raise SyntaxError
         )
 
-      | evaluate_internals (TAdd::rest) = (
+      | evaluate_internals (bM, bN, TAdd::rest) = (
          case !stack of
               y::x::stack_tail => (
-                if !buildingN then (exprN := SOME(Add (x, y)); buildingN := false; stack := tl ( tl(!stack)))
-                else if !buildingM then (exprM := SOME(Add (x, y)); buildingM := false; stack := tl (tl (!stack)))
-                else stack := (Add (x, y))::stack_tail;
+                if bN then (
+                  exprN := SOME(Add (x, y));
+                  stack := tl(tl(!stack));
 
-                evaluate_internals(rest)
+                  evaluate_internals(bM, false, rest)
+                )
+                else if bM then (
+                  exprM := SOME(Add (x, y));
+                  stack := tl(tl(!stack));
+
+                  evaluate_internals(false, bN, rest)
+                )
+                else (
+                  stack := (Add (x, y))::stack_tail;
+
+                  evaluate_internals(bM, bN, rest)
+                )
               )
             | _ => raise SyntaxError
         )
-      | evaluate_internals (TSub::rest) = (
+      | evaluate_internals (bM, bN, TSub::rest) = (
          case !stack of
               y::x::stack_tail => (
-                if !buildingN then (exprN := SOME(Sub (x, y)); buildingN := false; stack := tl ( tl(!stack)))
-                else if !buildingM then (exprM := SOME(Sub (x, y)); buildingM := false; stack := tl (tl (!stack)))
-                else stack := (Sub (x, y))::stack_tail;
+                if bN then (
+                  exprN := SOME(Sub (x, y));
+                  stack := tl(tl(!stack));
 
-                evaluate_internals(rest)
+                  evaluate_internals(bM, false, rest)
+                )
+                else if bM then (
+                  exprM := SOME(Sub (x, y));
+                  stack := tl(tl(!stack));
+
+                  evaluate_internals(false, bN, rest)
+                )
+                else (
+                  stack := (Sub (x, y))::stack_tail;
+
+                  evaluate_internals(bM, bN, rest)
+                )
               )
             | _ => raise SyntaxError
         )
-      | evaluate_internals (TMul::rest) = (
+      | evaluate_internals (bM, bN, TMul::rest) = (
          case !stack of
               y::x::stack_tail => (
-                if !buildingN then (exprN := SOME(Mul (x, y)); buildingN := false; stack := tl ( tl(!stack)))
-                else if !buildingM then (exprM := SOME(Mul (x, y)); buildingM := false; stack := tl (tl (!stack)))
-                else stack := (Mul (x, y))::stack_tail;
+                if bN then (
+                  exprN := SOME(Mul (x, y));
+                  stack := tl(tl(!stack));
 
-                evaluate_internals(rest)
+                  evaluate_internals(bM, false, rest)
+                )
+                else if bM then (
+                  exprM := SOME(Mul (x, y));
+                  stack := tl(tl(!stack));
+
+                  evaluate_internals(false, bN, rest)
+                )
+                else (
+                  stack := (Mul (x, y))::stack_tail;
+
+                  evaluate_internals(bM, bN, rest)
+                )
               )
             | _ => raise SyntaxError
         )
-      | evaluate_internals (TDiv::rest) = (
+      | evaluate_internals (bM, bN, TDiv::rest) = (
          case !stack of
               y::x::stack_tail => (
-                if !buildingN then (exprN := SOME(Div (x, y)); buildingN := false; stack := tl ( tl(!stack)))
-                else if !buildingM then (exprM := SOME(Div (x, y)); buildingM := false; stack := tl (tl (!stack)))
-                else stack := (Div (x, y))::stack_tail;
+                if bN then (
+                  exprN := SOME(Div (x, y));
+                  stack := tl(tl(!stack));
 
-                evaluate_internals(rest)
+                  evaluate_internals(bM, false, rest)
+                )
+                else if bM then (
+                  exprM := SOME(Div (x, y));
+                  stack := tl(tl(!stack));
+
+                  evaluate_internals(false, bN, rest)
+                )
+                else (
+                  stack := (Div (x, y))::stack_tail;
+
+                  evaluate_internals(bM, bN, rest)
+                )
               )
             | _ => raise SyntaxError
         )
       | evaluate_internals _ = raise UnsupportedToken
   in
-    evaluate_internals rpn;
+    evaluate_internals(false, false, rpn);
 
     case !stack of
          result::[] => result
@@ -318,7 +368,6 @@ val expected11 = Let("x", Int 5, Id "x");
 val output12 = exprify "$ x = 5 @ ($ y = 3 @ x + y!)!";
 val expected12 = Let("x", Int 5, Let("y", Int 3, Add( Id "x", Id "y")));
 
-(* let x = (let y = 3 in 2 + 3 end) in x end *)
 val output13 = exprify "$ x = $ y = 3 @ 2 + 3! @ x!";
 val expected13 = Let("x", Let("y", Int 3, Add(Int 2, Int 3)), Id "x");
 
