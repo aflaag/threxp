@@ -9,101 +9,76 @@ datatype expr = Int of int
              | Let of string * expr * expr
              | Print of expr;
 
-fun printStringIntOptionPairsRef refList =
-  let
-    fun printPair (str, opt) =
-      case opt of
-        SOME value => print ("(" ^ str ^ ", " ^ Int.toString value ^ ") ")
-      | NONE => print ("(" ^ str ^ ", NONE) ");
-    val pairList = !refList;
-  in
-    List.app printPair pairList;
-    print "\n"
-  end;
-
-val res : (string * int option) list ref = ref [];
+val threads_result : (string * int option) list ref = ref [];
 
 fun find_association (id, []) = raise Fail ("Variable not found: " ^ id)
   | find_association (id, (key, value)::rest) =
     if id = key then value
-    else ( printStringIntOptionPairsRef res;find_association (id, rest))
+    else find_association (id, rest)
 
-fun delete_element(tid: string) =
+fun delete_element(thread_id: string) =
   let
-    val updated_list = List.filter (fn (key, _) => key <> tid) (!res)
+    val updated_list = List.filter (fn (key, _) => key <> thread_id) (!threads_result )
   in
-    res := updated_list
+    threads_result := updated_list
   end;
 
-fun wait(trid) = (
+fun wait(thread_id) = (
   T.yield ();
-  print "trying\n";
-  printStringIntOptionPairsRef res;
-  print (trid ^ "\n");
-  case find_association(trid, !res) of SOME x => x | NONE => wait(trid)
-  ) handle Fail _ => wait(trid)
+  case find_association(thread_id, !threads_result ) of SOME x => x | NONE => wait(thread_id)
+  ) handle Fail _ => (0-1)
 
-fun start_eval (tid, env, Let (id, e1, e2)) =
+fun start_eval (thread_id, env, Let (id, e1, e2)) =
       let
-        val tid1 = tid ^ "0"
-        val tid2 = tid ^ "1"
-        val _ = res := (tid1, NONE) :: (tid2, NONE) :: !res
-        val _ = T.spawn(fn () => start_eval (tid1, env, e1))
-        val _ = T.spawn(fn () => start_eval (tid2, (id, tid1) :: env, e2))
-        val v = wait(tid2)
+        val thread_id1 = thread_id ^ "0"
+        val thread_id2 = thread_id ^ "1"
+        val _ = threads_result := (thread_id1, NONE) :: (thread_id2, NONE) :: !threads_result 
+        val _ = T.spawn(fn () => start_eval (thread_id1, env, e1))
+        val _ = T.spawn(fn () => start_eval (thread_id2, (id, thread_id1) :: env, e2))
+        val v = wait(thread_id2)
       in
-        wait(tid2);
-        print ("bebore deleting " ^ tid ^ " ");
-        printStringIntOptionPairsRef res;
-        delete_element(tid);
-        res := (tid, SOME v) :: !res;
-        delete_element(tid1);
-        delete_element(tid2);
-        print ("after deleting " ^ tid ^ " ");
-        printStringIntOptionPairsRef res;
-        (T.dispatch () handle T.NoRunnableThreads => ())
+        delete_element(thread_id);
+        threads_result := (thread_id, SOME v) :: !threads_result ;
+        delete_element(thread_id1);
+        if thread_id = "" then (T.empty_readyQueue(); delete_element(thread_id2))
+        else (delete_element(thread_id2); T.dispatch())
       end
-  | start_eval (tid, env, e) =
+  | start_eval (thread_id, env, e) =
       let
-        val _ = print "new thread entered\n"
-        val v = eval (tid, env, e)
+        val v = eval (thread_id, env, e)
       in
-        delete_element(tid);
-        res := (tid, SOME v) :: !res;
-        printStringIntOptionPairsRef res;
-        (T.dispatch () handle T.NoRunnableThreads => ())
+        delete_element(thread_id);
+        if thread_id = "" then (T.empty_readyQueue(); threads_result := (thread_id, SOME v) :: !threads_result)
+        else (threads_result := (thread_id, SOME v) :: !threads_result)
       end
 
-and wait_eval (tid, env, e) = (T.yield (); eval (tid, env, e))
+and wait_eval (thread_id, env, e) = (
+  T.yield (); 
+  eval (thread_id, env, e))
 
-and eval (tid, env, Int n) = n
-  | eval (tid, env, Id id) = (case find_association(find_association (id, env), !res) of SOME x => x | NONE =>  wait(find_association (id, env)))
-  | eval (tid, env, Add (e1, e2)) = wait_eval (tid, env, e1) + wait_eval (tid, env, e2)
-  | eval (tid, env, Sub (e1, e2)) = wait_eval (tid, env, e1) - wait_eval (tid, env, e2)
-  | eval (tid, env, Mul (e1, e2)) = wait_eval (tid, env, e1) * wait_eval (tid, env, e2)
-  | eval (tid, env, Div (e1, e2)) = wait_eval (tid, env, e1) div wait_eval (tid, env, e2)
-  | eval (tid, env, Let (id, e1, e2)) =
+and eval (thread_id, env, Int n) = n
+  | eval (thread_id, env, Id id) = (case find_association(find_association (id, env), !threads_result ) of SOME x => x | NONE =>  wait(find_association (id, env)))
+  | eval (thread_id, env, Add (e1, e2)) = wait_eval (thread_id, env, e1) + wait_eval (thread_id, env, e2)
+  | eval (thread_id, env, Sub (e1, e2)) = wait_eval (thread_id, env, e1) - wait_eval (thread_id, env, e2)
+  | eval (thread_id, env, Mul (e1, e2)) = wait_eval (thread_id, env, e1) * wait_eval (thread_id, env, e2)
+  | eval (thread_id, env, Div (e1, e2)) = wait_eval (thread_id, env, e1) div wait_eval (thread_id, env, e2)
+  | eval (thread_id, env, Let (id, e1, e2)) =
       let
-        val tid1 = tid ^ "0"
-        val tid2 = tid ^ "1"
-        val _ = res := (tid1, NONE) :: (tid2, NONE) :: !res
-        val _ = T.spawn(fn () => start_eval (tid1, env, e1))
-        val _ = T.spawn(fn () => start_eval (tid2, (id, tid1) :: env, e2))
-        val v = wait(tid2)
+        val thread_id1 = thread_id ^ "0"
+        val thread_id2 = thread_id ^ "1"
+        val _ = threads_result := (thread_id1, NONE) :: (thread_id2, NONE) :: !threads_result 
+        val _ = T.spawn(fn () => start_eval (thread_id1, env, e1))
+        val _ = T.spawn(fn () => start_eval (thread_id2, (id, thread_id1) :: env, e2))
+        val v = wait(thread_id2)
       in
-        wait(tid2);
-        print ("bebore deleting " ^ tid ^ " ");
-        printStringIntOptionPairsRef res;
-        delete_element(tid1);
-        delete_element(tid2);
-        print ("after deleting " ^ tid ^ " ");
-        printStringIntOptionPairsRef res;
-        res := (tid, SOME v) :: !res;
+        wait(thread_id2);
+        delete_element(thread_id1);
+        delete_element(thread_id2);
         v
       end
-  | eval (tid, env, Print e) =
+  | eval (thread_id, env, Print e) =
       let
-        val v = wait_eval (tid, env, e)
+        val v = wait_eval (thread_id, env, e)
       in
         print (Int.toString v ^ "\n");
         v
@@ -111,11 +86,10 @@ and eval (tid, env, Int n) = n
 
 fun run program = (
     let
-        val _ = res := [("", NONE)];
-        val _ = print "boh\n"
+        val _ = threads_result := [("", NONE)];
         val _ = start_eval ("", [], program);
     in
-        case find_association("", !res) of SOME x => x | NONE => 0-1
+        case find_association("", !threads_result ) of SOME x => x | NONE => 0-1
     end
 ) 
 
@@ -134,3 +108,11 @@ print ("Result 3: " ^ Int.toString result3 ^ " = 7\n");
 val program4 = Let ("x", Int 5, Let ("y", Id "x", Let ("x", Int 4, Id "y")));
 val result4 = run program4;
 print ("Result 4: " ^ Int.toString result4 ^ " = 5\n");
+
+val program5 = Let ("x", Add (Let("x", Int 10, Add(Id "x", Id "x")), Let("x", Int 10, Add(Id "x", Id "x"))), Id "x");
+val result5 = run program5;
+print ("Result 5: " ^ Int.toString result5 ^ " = 2\n");
+
+val program6 = Let ("x", Let ("x", Add (Let("x", Int 10, Add(Id "x", Id "x")), Let("x", Int 10, Add(Id "x", Id "x"))), Id "x"), Int 2);
+val result6 = run program6;
+print ("Result 6: " ^ Int.toString result6 ^ " = 2\n");
