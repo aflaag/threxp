@@ -17,17 +17,15 @@ datatype token = TInt of int
                | TMul
                | TDiv
                | TLet
+               | TLetStart of string
                | TEqual
                | TIn
                | TEnd
                | TRParen
                | TLParen
 
-exception UnsupportedOperand;
 exception UnsupportedToken;
-exception MismatchedParenthesis;
 exception SyntaxError;
-exception UnknownError;
 exception EmptyProgram;
 
 fun power (a, 0) = 1
@@ -55,6 +53,11 @@ fun char_map #"+" = TAdd
   | char_map #"(" = TLParen
   | char_map #")" = TRParen
   | char_map _ = raise UnsupportedToken
+
+fun tlsify ([]) = []
+  | tlsify (TLet::(TId var)::TEqual::rest) = TLParen::(TLetStart var)::tlsify(rest)
+  | tlsify (TEnd::rest) = TEnd::TRParen::tlsify(rest)
+  | tlsify (t::rest) = t::tlsify(rest)
 
 fun tokenize expression =
   let
@@ -95,10 +98,13 @@ fun tokenize expression =
                | (NONE, SOME(chars), operator) =>
                    (TId (empty_vars_stack chars))::(char_map operator)::tokenize_internals(NONE, NONE, rest)
   in
-    tokenize_internals(NONE, NONE, (explode expression))
+    tlsify(tokenize_internals(NONE, NONE, (explode expression)))
   end
 
 fun precedence TLParen = ~1
+  | precedence (TLetStart _) = ~1
+  | precedence TIn = ~1
+  | precedence TEnd = ~1
   | precedence TAdd = 0
   | precedence TSub = 0
   | precedence TMul = 1
@@ -126,9 +132,12 @@ fun rpnify tokens =
     fun rpnify_internals ([], []) = []
       | rpnify_internals (token::stack, []) = token::rpnify_internals(stack, [])
 
+      | rpnify_internals (stack, TIn::rest) = rpnify_internals(TIn::stack, rest)
+      | rpnify_internals (stack, TEnd::rest) = rpnify_internals(TEnd::stack, rest)
       | rpnify_internals (stack, TLParen::rest) = rpnify_internals(TLParen::stack, rest)
+      | rpnify_internals (stack, (TLetStart v)::rest) = rpnify_internals((TLetStart v)::stack, rest)
 
-      | rpnify_internals ([], TRParen::rest) = raise MismatchedParenthesis
+      | rpnify_internals ([], TRParen::rest) = raise SyntaxError
       | rpnify_internals (stack_top::stack, TRParen::rest) =
           if stack_top = TLParen
           then rpnify_internals(stack, rest)
@@ -166,9 +175,26 @@ fun rpnify tokens =
     rpnify_internals([], tokens)
   end
 
+fun palle (Int x) = "Int " ^ Int.toString(x)
+  | palle (Id v) = "Id " ^ v
+  | palle (Add (x, y)) = "Add (" ^ palle(x) ^ ", " ^ palle(y) ^ ")"
+  | palle (Sub (x, y)) = "Sub (" ^ palle(x) ^ ", " ^ palle(y) ^ ")"
+  | palle (Mul (x, y)) = "Mul (" ^ palle(x) ^ ", " ^ palle(y) ^ ")"
+  | palle (Div (x, y)) = "Div (" ^ palle(x) ^ ", " ^ palle(y) ^ ")"
+  | palle (Let (x, m, n)) = "Let (" ^ x ^ ", " ^ palle(m) ^ ", " ^ palle(n) ^ ")"
+
+fun cazzo ([]) = "\n"
+  | cazzo (s::rest) = " | " ^ palle(s) ^ " | " ^ cazzo(rest)
+
 fun evaluate rpn =
   let
     val stack = ref [];
+
+    val exprM = ref NONE;
+    val exprN = ref NONE;
+
+    val buildingM = ref false;
+    val buildingN = ref false;
 
     fun evaluate_internals ([]) = ()
 
@@ -181,39 +207,86 @@ fun evaluate rpn =
           evaluate_internals(rest)
         )
 
+      | evaluate_internals (TEnd::next::rest) = (
+          case next of
+               TIn => (
+                 exprN := SOME(hd (!stack));
+                 stack := tl (!stack)
+               )
+             | (TLetStart _) => raise SyntaxError
+
+             | _ => buildingN := true;
+
+          evaluate_internals(next::rest)
+        )
+      | evaluate_internals (TIn::next::rest) = (
+          case next of
+               (TLetStart _) => (
+                 exprM := SOME(hd (!stack));
+                 stack := tl (!stack)
+               )
+             | _ => buildingM := true;
+
+          evaluate_internals(next::rest)
+      )
+
+      | evaluate_internals ((TLetStart var)::rest) = (
+          case (!exprM, !exprN) of
+               (SOME(m), SOME(n)) => (
+                 stack := (Let (var, m, n))::(!stack);
+                 exprM := NONE;
+                 exprN := NONE;
+
+                 evaluate_internals(rest)
+               )
+             | (_, _) => raise SyntaxError
+        )
+
       | evaluate_internals (TAdd::rest) = (
          case !stack of
               y::x::stack_tail => (
-                stack := (Add (x, y))::stack_tail;
+                if !buildingN then (exprN := SOME(Add (x, y)); buildingN := false; stack := tl ( tl(!stack)))
+                else if !buildingM then (exprM := SOME(Add (x, y)); buildingM := false; stack := tl (tl (!stack)))
+                else stack := (Add (x, y))::stack_tail;
+
                 evaluate_internals(rest)
               )
             | _ => raise SyntaxError
-       )
+        )
       | evaluate_internals (TSub::rest) = (
          case !stack of
               y::x::stack_tail => (
-                stack := (Sub (x, y))::stack_tail;
+                if !buildingN then (exprN := SOME(Sub (x, y)); buildingN := false; stack := tl ( tl(!stack)))
+                else if !buildingM then (exprM := SOME(Sub (x, y)); buildingM := false; stack := tl (tl (!stack)))
+                else stack := (Sub (x, y))::stack_tail;
+
                 evaluate_internals(rest)
               )
             | _ => raise SyntaxError
-       )
+        )
       | evaluate_internals (TMul::rest) = (
          case !stack of
               y::x::stack_tail => (
-                stack := (Mul (x, y))::stack_tail;
+                if !buildingN then (exprN := SOME(Mul (x, y)); buildingN := false; stack := tl ( tl(!stack)))
+                else if !buildingM then (exprM := SOME(Mul (x, y)); buildingM := false; stack := tl (tl (!stack)))
+                else stack := (Mul (x, y))::stack_tail;
+
                 evaluate_internals(rest)
               )
             | _ => raise SyntaxError
-       )
+        )
       | evaluate_internals (TDiv::rest) = (
          case !stack of
               y::x::stack_tail => (
-                stack := (Div (x, y))::stack_tail;
+                if !buildingN then (exprN := SOME(Div (x, y)); buildingN := false; stack := tl ( tl(!stack)))
+                else if !buildingM then (exprM := SOME(Div (x, y)); buildingM := false; stack := tl (tl (!stack)))
+                else stack := (Div (x, y))::stack_tail;
+
                 evaluate_internals(rest)
               )
             | _ => raise SyntaxError
-       )
-     | evaluate_internals _ = raise UnsupportedToken
+        )
+      | evaluate_internals _ = raise UnsupportedToken
   in
     evaluate_internals rpn;
 
@@ -246,6 +319,12 @@ val expected6 = Add (Add (Int 1,Mul (Int 3,Id "test")),Int 5)
 val output7 = exprify "5 + (x + (ciao + 5))";
 val expected7 = Add (Int 5, Add (Id "x", Add(Id "ciao", Int 5)))
 
+val output8 = exprify "$ x = ($ y = 3 @ 2 + 3 ! + 3) @ x !";
+val expected8 = Let ("x",Add (Let ("y",Int 3,Add (Int 2,Int 3)),Int 3),Id "x")
+
+val output9 = exprify "$ x = $ x = 10 @ x + x ! + $ x =  10 @ x + x ! @ x !";
+val expected9 = Let ("x", Add (Let("x", Int 10, Add(Id "x", Id "x")), Let("x", Int 10, Add(Id "x", Id "x"))), Id "x");
+
 val check1 = output1 = expected1;
 val check2 = output2 = expected2;
 val check3 = output3 = expected3;
@@ -253,9 +332,13 @@ val check4 = output4 = expected4;
 val check5 = output5 = expected5;
 val check6 = output6 = expected6;
 val check7 = output7 = expected7;
+val check8 = output8 = expected8;
+val check9 = output9 = expected9;
 
-(* val tokens = tokenize "x + y"; *)
-(* val rpn = rpnify tokens; *)
-(* val result = evaluate rpn; *)
+(* exprify "$ x = 5 @ x + 3 !"; *)
+
+(*let x = 5 in (let y = 3 in x + y)*)
+
+(* let x = (let y = 3 in 2 + 3 end) in x end *)
 
 OS.Process.exit(OS.Process.success);
