@@ -11,6 +11,7 @@ datatype expr = Int of int
               | Let of string * expr * expr
 
 datatype token = TInt of int
+               | TId of string
                | TAdd
                | TSub
                | TMul
@@ -32,49 +33,69 @@ exception EmptyProgram;
 fun power (a, 0) = 1
   | power (a, b) = a * power(a, b - 1)
 
-fun empty_stack stack =
+fun empty_numbers_stack stack =
   let 
-    fun empty_stack_internals (n, []) = 0
-      | empty_stack_internals (n, (TInt x)::rest) = x * power(10, n) + empty_stack_internals(n + 1, rest)
-      | empty_stack_internals (_, _) = raise UnknownError
+    fun empty_numbers_stack_internals (n, []) = 0
+      | empty_numbers_stack_internals (n, x::rest) =
+          x * power(10, n) + empty_numbers_stack_internals(n + 1, rest)
   in
-    empty_stack_internals(0, stack)
+    empty_numbers_stack_internals(0, stack)
   end
+
+fun empty_vars_stack stack = implode (rev stack);
+
+fun char_map #"+" = TAdd
+  | char_map #"-" = TSub
+  | char_map #"*" = TMul
+  | char_map #"/" = TDiv
+  | char_map #"$" = TLet
+  | char_map #"=" = TEqual
+  | char_map #"@" = TIn
+  | char_map #"!" = TEnd
+  | char_map #"(" = TLParen
+  | char_map #")" = TRParen
+  | char_map _ = raise UnsupportedToken
 
 fun tokenize expression =
   let
-    fun tokenize_internals (stack, chars) =
-      case (stack, chars) of
-           (NONE, []) => []
-         | (SOME(digits), []) => (TInt (empty_stack digits))::tokenize_internals(NONE, [])
-         | (stack, c::rest) =>
-             if Char.isDigit c
-             then tokenize_internals(SOME (
-               (TInt (Char.ord c - 48))::(
-                 case stack of
-                      NONE => []
-                    | SOME(digits) => digits
-               )
-             ), rest)
-             else
-               case (stack, c) of
-                    (NONE, #"+") => TAdd::tokenize_internals(NONE, rest)
-                  | (NONE, #"-") => TSub::tokenize_internals(NONE, rest)
-                  | (NONE, #"*") => TMul::tokenize_internals(NONE, rest)
-                  | (NONE, #"/") => TDiv::tokenize_internals(NONE, rest)
-                  | (NONE, #"(") => TLParen::tokenize_internals(NONE, rest)
-                  | (NONE, #")") => TRParen::tokenize_internals(NONE, rest)
-                  | (NONE, #" ") => tokenize_internals(NONE, rest)
-                  | (SOME(digits), #"+") => (TInt (empty_stack digits))::TAdd::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #"-") => (TInt (empty_stack digits))::TSub::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #"*") => (TInt (empty_stack digits))::TMul::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #"/") => (TInt (empty_stack digits))::TDiv::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #"(") => (TInt (empty_stack digits))::TLParen::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #")") => (TInt (empty_stack digits))::TRParen::tokenize_internals(NONE, rest)
-                  | (SOME(digits), #" ") => (TInt (empty_stack digits))::tokenize_internals(NONE, rest)
-                  | (_, _) => raise UnsupportedOperand
+    fun tokenize_internals (NONE, NONE, []) = []
+      | tokenize_internals (SOME(digits), NONE, []) =
+          (TInt (empty_numbers_stack digits))::tokenize_internals(NONE, NONE, [])
+      | tokenize_internals (NONE, SOME(chars), []) =
+          (TId (empty_vars_stack chars))::tokenize_internals(NONE, NONE, [])
+
+      | tokenize_internals (SOME(_), SOME(_), _) = raise UnsupportedToken
+
+      | tokenize_internals (numbers_stack, vars_stack, c::rest) =
+          if Char.isDigit c then tokenize_internals(SOME(
+            (Char.ord c - 48)::(
+              case numbers_stack of
+                  NONE => []
+                | SOME(digits) => digits
+            )
+          ), vars_stack, rest)
+          else if Char.isAlpha c then tokenize_internals(numbers_stack, SOME(
+            c::(
+              case vars_stack of
+                  NONE => []
+                | SOME(chars) => chars
+            )
+          ), rest)
+          else
+            case (numbers_stack, vars_stack, c) of
+                 (NONE, NONE, #" ") => tokenize_internals(NONE, NONE, rest)
+               | (SOME(digits), NONE, #" ") =>
+                   (TInt (empty_numbers_stack digits))::tokenize_internals(NONE, NONE, rest)
+               | (NONE, SOME(chars), #" ") =>
+                   (TId (empty_vars_stack chars))::tokenize_internals(NONE, NONE, rest)
+
+               | (NONE, NONE, operator) => (char_map operator)::tokenize_internals(NONE, NONE, rest)
+               | (SOME(digits), NONE, operator) =>
+                   (TInt (empty_numbers_stack digits))::(char_map operator)::tokenize_internals(NONE, NONE, rest)
+               | (NONE, SOME(chars), operator) =>
+                   (TId (empty_vars_stack chars))::(char_map operator)::tokenize_internals(NONE, NONE, rest)
   in
-    tokenize_internals(NONE, (explode expression))
+    tokenize_internals(NONE, NONE, (explode expression))
   end
 
 fun precedence TLParen = ~1
@@ -84,21 +105,21 @@ fun precedence TLParen = ~1
   | precedence TDiv = 1
   | precedence _ = raise UnsupportedToken
 
-fun print_token (TInt x) = "TInt " ^ Int.toString(x)
-  | print_token TAdd = "TAdd"
-  | print_token TSub = "TSub"
-  | print_token TMul = "TMul"
-  | print_token TDiv = "TDiv"
-  | print_token TRParen = "TRParen"
-  | print_token TLParen = "TLParen"
-  | print_token _ = raise UnsupportedToken
-  (* | print_token TLet = "TLet" *)
-  (* | print_token TEqual *)
-  (* | print_token TIn *)
-  (* | print_token TEnd *)
-
-fun print_tokens ([]) = "\n"
-  | print_tokens (t::rest) = (print_token t) ^ ", " ^ print_tokens(rest)
+(* fun print_token (TInt x) = "TInt " ^ Int.toString(x) *)
+(*   | print_token TAdd = "TAdd" *)
+(*   | print_token TSub = "TSub" *)
+(*   | print_token TMul = "TMul" *)
+(*   | print_token TDiv = "TDiv" *)
+(*   | print_token TRParen = "TRParen" *)
+(*   | print_token TLParen = "TLParen" *)
+(*   | print_token _ = raise UnsupportedToken *)
+(*   | print_token TLet = "TLet" *)
+(*   | print_token TEqual *)
+(*   | print_token TIn *)
+(*   | print_token TEnd *)
+(**)
+(* fun print_tokens ([]) = "\n" *)
+(*   | print_tokens (t::rest) = (print_token t) ^ ", " ^ print_tokens(rest) *)
 
 fun rpnify tokens =
   let
@@ -114,6 +135,7 @@ fun rpnify tokens =
           else stack_top::rpnify_internals(stack, TRParen::rest)
 
       | rpnify_internals (stack, (TInt x)::rest) = (TInt x)::rpnify_internals(stack, rest)
+      | rpnify_internals (stack, (TId v)::rest) = (TId v)::rpnify_internals(stack, rest)
       
       | rpnify_internals ([], TAdd::rest) = rpnify_internals([TAdd], rest)
       | rpnify_internals (stack_top::stack, TAdd::rest) =
@@ -149,10 +171,16 @@ fun evaluate rpn =
     val stack = ref [];
 
     fun evaluate_internals ([]) = ()
+
       | evaluate_internals ((TInt x)::rest) = (
           stack := (Int x)::(!stack);
           evaluate_internals(rest)
         )
+      | evaluate_internals ((TId v)::rest) = (
+          stack := (Id v)::(!stack);
+          evaluate_internals(rest)
+        )
+
       | evaluate_internals (TAdd::rest) = (
          case !stack of
               y::x::stack_tail => (
@@ -203,8 +231,8 @@ val expected1 = Sub (Int 10, Div (Mul (Int 11,Add (Sub (Int 123,Div (Int 52,Int 
 val output2 = exprify "1 - (2 * (1 + 3 * 4 + 5))";
 val expected2 = Sub (Int 1,Mul (Int 2,Add (Add (Int 1,Mul (Int 3,Int 4)),Int 5)));
 
-val output3 = exprify "(12 + 3) * (4 - 9)";
-val expected3 = Mul (Add (Int 12,Int 3),Sub (Int 4,Int 9));
+val output3 = exprify "(12 + var) * (4 - 9)";
+val expected3 = Mul (Add (Int 12,Id "var"),Sub (Int 4,Int 9));
 
 val output4 = exprify "3 + 4 * (12 + 5)";
 val expected4 = Add (Int 3, Mul (Int 4, Add(Int 12, Int 5)));
@@ -212,11 +240,11 @@ val expected4 = Add (Int 3, Mul (Int 4, Add(Int 12, Int 5)));
 val output5 = exprify "7 + (4 * (5 + 6))";
 val expected5 = Add (Int 7, Mul (Int 4, Add(Int 5, Int 6)));
 
-val output6 = exprify "1 + 3 * 4 + 5";
-val expected6 = Add (Add (Int 1,Mul (Int 3,Int 4)),Int 5)
+val output6 = exprify "1 + 3 * test + 5";
+val expected6 = Add (Add (Int 1,Mul (Int 3,Id "test")),Int 5)
 
-val output7 = exprify "5 + (5 + (5 + 5))";
-val expected7 = Add (Int 5, Add (Int 5, Add(Int 5, Int 5)))
+val output7 = exprify "5 + (x + (ciao + 5))";
+val expected7 = Add (Int 5, Add (Id "x", Add(Id "ciao", Int 5)))
 
 val check1 = output1 = expected1;
 val check2 = output2 = expected2;
@@ -225,5 +253,9 @@ val check4 = output4 = expected4;
 val check5 = output5 = expected5;
 val check6 = output6 = expected6;
 val check7 = output7 = expected7;
+
+(* val tokens = tokenize "x + y"; *)
+(* val rpn = rpnify tokens; *)
+(* val result = evaluate rpn; *)
 
 OS.Process.exit(OS.Process.success);
