@@ -1,5 +1,4 @@
 use "expr.sml";
-use "exceptions.sml";
 
 (* this is a helper function used to map operator tokens into 
 operator inside expr *)

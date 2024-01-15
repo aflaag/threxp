@@ -1,6 +1,3 @@
-use "token.sml";
-use "exceptions.sml";
-
 fun precedence TLParen = ~1
   | precedence (TLetStart _) = ~1
   | precedence TIn = ~1
