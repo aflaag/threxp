@@ -55,6 +55,7 @@ structure T :> THREADS =
                   let 
                     val t = Queue.dequeue (readyQueue)
                   in 
+                    (* delete the threads that are under the actual thread *)
                     if (String.isPrefix thread_id (#2 t)) then (
                       counter := !counter - 1
                     ) else (
