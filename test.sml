@@ -1,4 +1,5 @@
 use "exprifier.sml";
+use "lang.sml";
 
 val output1 = exprify "10 - (11 * (123 - 52 / 1 + 25) / (12 - (12 + (12)) * 5))";
 val expected1 = Sub (Int 10, Div (Mul (Int 11,Add (Sub (Int 123,Div (Int 52,Int 1)),Int 25)), Sub (Int 12,Mul (Add (Int 12,Int 12),Int 5))));
@@ -39,6 +40,25 @@ val expected12 = Let("x", Int 5, Let("y", Int 3, Add( Id "x", Id "y")));
 val output13 = exprify "$ x = $ y = 3 @ 2 + 3! @ x!";
 val expected13 = Let("x", Let("y", Int 3, Add(Int 2, Int 3)), Id "x");
 
+val output14 = run (Add (Int 1, Mul (Int 2, Int 3)));
+val expected14 = 7;
+
+val output15 = run (Let ("x", Int 5, Add (Id "x", Id "x")));
+val expected15 = 10;
+
+val output16 = run (Let ("x", Int 5, Add (Let ("x", Int 6, Int 2), Id "x")));
+val expected16 = 7;
+
+val output17 = run (Let ("x", Int 5, Let ("y", Id "x", Let ("x", Int 4, Id "y"))));
+val expected17 = 5;
+
+val output18 = run (Let ("x", Add (Let("x", Int 10, Add(Id "x", Id "x")), Let("x", Int 10, Add(Id "x", Id "x"))), Id "x"));
+val expected18 = 40;
+
+val output19 = run (Let ("x", Let ("x", Add (Let("x", Int 10, Add(Id "x", Id "x")), Let("x", Int 10, Add(Id "x", Id "x"))), Id "x"), Int 2));
+val expected19 = 2;
+
+
 val check1 = output1 = expected1;
 val check2 = output2 = expected2;
 val check3 = output3 = expected3;
@@ -52,6 +72,12 @@ val check10 = output10 = expected10;
 val check11 = output11 = expected11;
 val check12 = output12 = expected12;
 val check13 = output13 = expected13;
+val check14 = output14 = expected14;
+val check15 = output15 = expected15;
+val check16 = output16 = expected16;
+val check17 = output17 = expected17;
+val check18 = output18 = expected18;
+val check19 = output19 = expected19;
 
 val all_passed = check1 andalso
                check2 andalso
@@ -65,4 +91,10 @@ val all_passed = check1 andalso
                check10 andalso
                check11 andalso
                check12 andalso
-               check13;
+               check13 andalso
+               check14 andalso
+               check15 andalso
+               check16 andalso
+               check17 andalso
+               check18 andalso
+               check19;
