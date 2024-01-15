@@ -31,7 +31,7 @@ fun start_eval (thread_id, env, Let (id, e1, e2)) =
       val _ = threads_result := (thread_id1, NONE) :: (thread_id2, NONE) :: !threads_result
       val _ = T.spawn (fn () => start_eval (thread_id1, env, e1), thread_id)
       val _ = T.spawn (fn () => start_eval (thread_id2, (id, thread_id1) :: env, e2), thread_id)
-      (* we know that (Let x = M in N) = N[x/M] so we are waiting the N result *)
+      (* we know that (Let x = M in N) = N[M/x] so we are waiting the N result *)
       val v = wait(thread_id, thread_id2)
     in
       (* delete the current result wich is NONE and his sons*)
