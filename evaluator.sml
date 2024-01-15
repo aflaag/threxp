@@ -8,8 +8,10 @@ fun map_operator (TAdd, x, y) = Add (x, y)
   | map_operator (TDiv, x, y) = Div (x, y)
   | map_operator _ = raise UnsupportedToken
 
+(* this function evaluates a token list in RPN *)
 fun evaluate rpn =
   let
+    (* this stack will contain the output value *)
     val stack = ref [];
 
     fun evaluate_internals (_, _, _, _, []) = ()
